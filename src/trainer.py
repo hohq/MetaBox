@@ -216,10 +216,12 @@ class Trainer(object):
         """
         print(f'start training: {self.config.run_time}')
         print("following config:")
-        pprint.pprint(vars(self.config))
+        # pprint.pprint(vars(self.config))
         is_end = False
         tb_logger = None
         start_time = time.time()
+        # 可选的训练时长上限（秒）
+        time_limit_sec = getattr(self.config, "train_time_limit_sec", None)
         if not self.config.no_tb:
             if not os.path.exists(os.path.join(f'{self.config.tb_dir}', self.config.run_time)):
                 os.makedirs(os.path.join(f'{self.config.tb_dir}', self.config.run_time))
@@ -242,6 +244,10 @@ class Trainer(object):
 
         checkpoint_time0 = time.time()
         while not is_end:
+            # 进入新 epoch 前检查时间上限
+            if time_limit_sec is not None and (time.time() - start_time) >= float(time_limit_sec):
+                is_end = True
+                break
             learn_step = 0
             self.train_set.shuffle()
             return_record = []
@@ -296,11 +302,15 @@ class Trainer(object):
                     #     # 记录 checkpoint 和 total_step
                     #     with open(self.config.agent_save_dir + "/checkpoint_log.txt", "a") as f:
                     #         f.write(f"Checkpoint {self.agent.cur_checkpoint}: {learn_step}\n")
-
+                    if time_limit_sec is not None and (time.time() - start_time) >= float(time_limit_sec):
+                        is_end = True
+                        break
                     if self.config.end_mode == "step" and exceed_max_ls:
                         is_end = True
                         break
                 # self.agent.train_epoch()
+            # 跳出内层后再次检查（避免继续到下一轮）
+
             # epoch_steps.append(learn_step)
             checkpoint_time_epoch = time.time() - checkpoint_time0
             epoch += 1
@@ -329,3 +339,5 @@ class Trainer(object):
                 self.agent.cur_checkpoint += 1
             if self.config.end_mode == "epoch" and epoch >= self.config.max_epoch:
                 is_end = True
+            if is_end:
+                break

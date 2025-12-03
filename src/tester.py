@@ -91,6 +91,9 @@ from .baseline.metabbo import (
     OPRO
 )
 
+# 跳过的经典优化器名
+SKIP_OPTIMIZERS = {"CMAES", "Random_search"}
+
 def cal_t0(dim, fes):
     """
     # Introduction
@@ -382,30 +385,33 @@ def get_baseline(config):
     baselines = config.baselines
     assert baselines is not None
     for bsl in baselines.keys():
-        if 'agent' in baselines[bsl].keys():  # metabbo
-            agents_optimizers_for_cp.append(baselines[bsl]['optimizer'](config))
+        entry = baselines[bsl]
+        if 'agent' in entry.keys():  # metabbo
+            agents_optimizers_for_cp.append(entry['optimizer'](config))
             agent_keys.append(bsl)
-            if 'model_load_path' in baselines[bsl].keys() and baselines[bsl]['model_load_path'] is not None:
-                with open(os.path.join(os.getcwd(), baselines[bsl]['model_load_path']), 'rb') as f:
+            if 'model_load_path' in entry.keys() and entry['model_load_path'] is not None:
+                with open(os.path.join(os.getcwd(), entry['model_load_path']), 'rb') as f:
                     agents_for_cp.append(pickle.load(f, fix_imports=False))
             else:
                 try:
                     base_dir = f'metaevobox.model.{config.test_problem}.{config.test_difficulty}'
                     if importlib.util.find_spec(base_dir) is not None:
-                        model_path = pkg_resources.files(base_dir).joinpath(f"{baselines[bsl]['agent']}.pkl")
+                        model_path = pkg_resources.files(base_dir).joinpath(f"{entry['agent']}.pkl")
                         with model_path.open('rb') as f:
                             agents_for_cp.append(pickle.load(f))
                     else:
                         raise ModuleNotFoundError
                 except ModuleNotFoundError:
                     base_path = os.path.dirname(os.path.abspath(__file__))
-                    model_path = os.path.join(base_path, f"model/{config.test_problem}/{config.test_difficulty}", f"{baselines[bsl]['agent']}.pkl")
+                    model_path = os.path.join(base_path, f"model/{config.test_problem}/{config.test_difficulty}", f"{entry['agent']}.pkl")
                     with open(model_path, 'rb') as f:
                         agents_for_cp.append(pickle.load(f))
         else:  # bbo
-            traditional_optimizers_for_cp.append(baselines[bsl]['optimizer'](config))
+            opt_cls = entry['optimizer']
+            if getattr(opt_cls, "__name__", "") in SKIP_OPTIMIZERS:
+                continue
+            traditional_optimizers_for_cp.append(opt_cls(config))
     config.baselines = None
-    # config update
     for agent in agents_for_cp:
         agent.config.full_meta_data = config.full_meta_data
     return (agents_for_cp, agents_optimizers_for_cp, traditional_optimizers_for_cp, agent_keys), config
@@ -468,6 +474,7 @@ class Tester(object):
             metabbo.append(self.agent_name_list[id])
             self.l_optimizer_for_cp.append(copy.deepcopy(opt))
 
+        # 原地统计传统优化器个数
         name_count = dict()
         for id, opt in enumerate(traditional_optimizers_for_cp):
             name = opt.__str__()
@@ -487,24 +494,23 @@ class Tester(object):
             self.t_optimizer_for_cp.insert(0, copy.deepcopy(opt))
             bbo.insert(0, name)
 
-        if 'mmo' in self.config.test_problem:
-            pass
-        elif 'mto' in self.config.test_problem or 'wcci2020' in self.config.test_problem:
-            pass
-        elif 'moo' in self.config.test_problem:
-            pass
-        else:
-            if "CMAES" not in name_count:
+        # 这里原先会自动加入 CMAES/Random_search；改为可禁用
+        auto_add = not getattr(self.config, "disable_auto_bbo", False)
+        if auto_add and 'mmo' not in self.config.test_problem and \
+           'mto' not in self.config.test_problem and 'wcci2020' not in self.config.test_problem and \
+           'moo' not in self.config.test_problem:
+            # 仅当未要求禁用且不在特殊场景才尝试自动添加
+            if "CMAES" not in SKIP_OPTIMIZERS and "CMAES" not in name_count:
                 cmaes = CMAES(self.config)
                 setattr(cmaes, "test_name", "CMAES")
                 self.t_optimizer_for_cp.append(cmaes)
                 bbo.append("CMAES")
-
-            if "Random_search" not in name_count:
+            if "Random_search" not in SKIP_OPTIMIZERS and "Random_search" not in name_count:
                 rs = Random_search(self.config)
                 setattr(rs, "test_name", "Random_search")
                 self.t_optimizer_for_cp.append(rs)
                 bbo.append("Random_search")
+
         # logging
         if len(self.agent_for_cp) == 0:
             print('None of learnable agent')
@@ -609,7 +615,7 @@ class Tester(object):
 
         print(f'start testing: {self.config.run_time}_{self.config.test_problem}_{self.config.test_difficulty}')
         print("following config:")
-        pprint.pprint(vars(self.config))
+        # pprint.pprint(vars(self.config))
         test_log_dir = self.test_log_dir
 
         if not os.path.exists(test_log_dir):
@@ -781,7 +787,7 @@ class Tester(object):
                 logger = MOO_Logger(self.config)
             else:
                 logger = Basic_Logger(self.config)
-            logger.post_processing_test_statics(test_log_dir + '/') # todo
+            # logger.post_processing_test_statics(test_log_dir + '/') # todo
 
     def test_for_random_search(self):
         """

@@ -5,10 +5,11 @@ import subprocess, sys
 import torch
 def Config(user_config, datasets_dir = None):
     default_config = get_config()
+    
     for key, value in user_config.items():
         if hasattr(default_config, key):
             setattr(default_config, key, value)
-
+    
     default_config = init_config(default_config)
 
     torch.set_default_dtype(torch.float64)
@@ -91,7 +92,7 @@ def Config(user_config, datasets_dir = None):
 
 def init_config(config):
     config.n_logpoint = 50
-
+    # config.train_time_limit_sec = config.train_time_limit_sec
     if config.test_problem is None:
         config.test_problem = config.train_problem
     if config.test_difficulty is None:
@@ -113,8 +114,10 @@ def init_config(config):
     elif "ne" in config.train_problem or "ne" in config.test_problem:
         config.maxFEs = 2500
     else:
-        config.maxFEs = 20000
-
+        # config.maxFEs = 20000
+        config.maxFEs = 1000
+        # config.maxFEs = 50
+    # config.train_time_limit_sec = config.train_time_limit_sec
     config.run_time = time.strftime("%Y%m%dT%H%M%S")
     config.train_name = f'{config.run_time}_{config.train_problem}_{config.train_difficulty}'
     config.test_log_dir = config.log_dir + 'test/' + f'{config.run_time}_{config.test_problem}_{config.test_difficulty}'
@@ -182,7 +185,7 @@ def get_config(args=None):
     parser.add_argument('--full_meta_data', type=bool, default=False, help='store the metadata')
     parser.add_argument('--log_dir', type=str, default='output/',
                         help='logging output')
-
+    parser.add_argument('--train_time_limit_sec', type=int, default=3600)
     config = parser.parse_args(args)
 
     # # for bo, maxFEs is relatively smaller due to time limit
